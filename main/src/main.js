@@ -19,13 +19,19 @@ let moveBackward = false;
 let moveLeft = false;
 let moveRight = false;
 
+// Velocity and direction
 let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 
 // For collision detection
-const objects = [];
+const normalObjects = []; // Array to hold collidable objects (flat, furniture, etc.)
 let raycaster;
+
+// For interaction raycasting
+const interactionRaycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const smartDevices = []; // Array to hold smart home device objects (NO OBJECTS ADDED YET)
 
 // Lighting
 const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -57,8 +63,7 @@ function init() {
         blocker.style.display = 'block';
         instructions.style.display = '';
     });
-
-    //scene.add(light);
+    
     scene.add(controls.object);
 
     // Add some ground for collision detection
@@ -66,17 +71,18 @@ function init() {
     floorGeometry.rotateX(-Math.PI / 2);
     const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xC0C0C0 });
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.position.y = -40;
+    floor.position.y = 0;
     scene.add(floor);
-    objects.push(floor);
+    normalObjects.push(floor);
 
     // Position torus
     torus.position.y = 15;
     scene.add(torus);
 
     cube.position.x = 20;
-    cube.position.y = 5;
+    cube.position.y = 1;
     scene.add(cube);
+    normalObjects.push(cube);
 
     const onKeyDown = function ( event ) {
 		switch ( event.code ) {
@@ -92,27 +98,23 @@ function init() {
 			case 'KeyD':
 				moveRight = true;
 				break;
+            case 'KeyE':
+                handleInteraction();
+                break;
 		}
 	};
 
     const onKeyUp = function ( event ) {
 		switch ( event.code ) {
-			case 'ArrowUp':
 			case 'KeyW':
 				moveForward = false;
 				break;
-
-			case 'ArrowLeft':
 			case 'KeyA':
 				moveLeft = false;
 				break;
-
-			case 'ArrowDown':
 			case 'KeyS':
 				moveBackward = false;
 				break;
-
-			case 'ArrowRight':
 			case 'KeyD':
 				moveRight = false;
 				break;
@@ -160,6 +162,23 @@ function onWindowResize() {
 	renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+function handleInteraction() {
+    // Cast a ray from the camera to detect objects in front
+    interactionRaycaster.setFromCamera(mouse, camera);
+    // Raycast against all objects in the scene (TODO: optimize by using a specific list)
+    const intersects = interactionRaycaster.intersectObjects(scene.children, true);
+
+    if (intersects.length > 0) {
+        const closestObject = intersects[0].object;
+        console.log('Interacted with:', closestObject);
+
+        // Example interaction: change color of the object (TODO: implement pop-up)
+        if (smartDevices.includes(closestObject)) {
+            // GUI pop-up code would go here
+        }
+    }
+}
+
 function animate() {
     const time = performance.now();
 
@@ -172,9 +191,6 @@ function animate() {
         // Movement physics
         raycaster.ray.origin.copy(controls.object.position);
         raycaster.ray.origin.y -= 10;
-
-        const intersections = raycaster.intersectObjects(objects, false);
-        const onObject = intersections.length > 0;
 
         const delta = (time - prevTime) / 1000;
 
@@ -192,21 +208,12 @@ function animate() {
         if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
         if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
 
-        // Handle jumping and ground collision
-        if (onObject === true) {
-            velocity.y = Math.max(0, velocity.y);
-        }
-
-        // Move the camera
+        // Move the camera based on velocity
         controls.moveRight(-velocity.x * delta);
         controls.moveForward(-velocity.z * delta);
-        controls.object.position.y += (velocity.y * delta);
 
-        // Prevent falling through ground
-        if (controls.object.position.y < 10) {
-            velocity.y = 0;
-            controls.object.position.y = 10;
-        }
+        // Keep camera at a constant height
+        controls.object.position.y = 10;
     }
 
     prevTime = time;
