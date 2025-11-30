@@ -1,17 +1,10 @@
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css'
 import * as THREE from 'three';
 
 let camera, scene, renderer, controls;
-
-const torusgeometry = new THREE.TorusGeometry(10, 3, 16, 100);
-const torusmaterial = new THREE.MeshStandardMaterial({ color: 0xff6347 });
-const torus = new THREE.Mesh(torusgeometry, torusmaterial);
-
-const cubegeometry = new THREE.BoxGeometry(6, 6, 6);
-const cubematerial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-const cube = new THREE.Mesh(cubegeometry, cubematerial);
 
 // Movement variables
 let moveForward = false;
@@ -33,15 +26,30 @@ const interactionRaycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const smartDevices = []; // Array to hold smart home device objects (NO OBJECTS ADDED YET)
 
-// Lighting
-const light = new THREE.DirectionalLight(0xffffff, 1);
-light.position.set(5, 10, 7.5);
+let debugEl;
 
 init();
 
 function init() { 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 10, 30);
+    camera.position.set(-2, 2.8, -4.5);
+
+    debugEl = document.createElement('div');
+    debugEl.id = 'camera-debug';
+    Object.assign(debugEl.style, {
+        position: 'absolute',
+        top: '8px',
+        left: '8px',
+        color: '#fff',
+        background: 'rgba(0,0,0,0.5)',
+        padding: '6px',
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        whiteSpace: 'pre',
+        zIndex: 1000,
+        pointerEvents: 'none'
+    });
+    document.body.appendChild(debugEl);
 
     scene = new THREE.Scene();
 
@@ -66,23 +74,12 @@ function init() {
     
     scene.add(controls.object);
 
-    // Add some ground for collision detection
-    const floorGeometry = new THREE.PlaneGeometry(100, 100);
-    floorGeometry.rotateX(-Math.PI / 2);
-    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xC0C0C0 });
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.position.y = 0;
-    scene.add(floor);
-    normalObjects.push(floor);
-
-    // Position torus
-    torus.position.y = 15;
-    scene.add(torus);
-
-    cube.position.x = 20;
-    cube.position.y = 1;
-    scene.add(cube);
-    normalObjects.push(cube);
+    const gltfLoader = new GLTFLoader();
+    const url = './models/2roomflat.glb';
+    gltfLoader.load(url, (gltf) => {
+        const root = gltf.scene;
+        scene.add(root);
+    });
 
     const onKeyDown = function ( event ) {
 		switch ( event.code ) {
@@ -183,11 +180,6 @@ function animate() {
     const time = performance.now();
 
     if (controls.isLocked === true) {
-        // Rotate torus
-        torus.rotation.x += 0.01;
-        torus.rotation.y += 0.01;
-        torus.rotation.z += 0.01;
-
         // Movement physics
         raycaster.ray.origin.copy(controls.object.position);
         raycaster.ray.origin.y -= 10;
@@ -205,15 +197,23 @@ function animate() {
         direction.normalize();
 
         // Apply movement forces
-        if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
-        if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
+        if (moveForward || moveBackward) velocity.z -= direction.z * 50 * delta;
+        if (moveLeft || moveRight) velocity.x -= direction.x * 50 * delta;
 
         // Move the camera based on velocity
         controls.moveRight(-velocity.x * delta);
         controls.moveForward(-velocity.z * delta);
 
         // Keep camera at a constant height
-        controls.object.position.y = 10;
+        controls.object.position.y = 2.8;
+
+        if (debugEl && camera) {
+        const p = camera.position;
+        const r = camera.rotation;
+        debugEl.textContent =
+            `pos: ${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}\n` +
+            `rot: ${THREE.MathUtils.radToDeg(r.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.z).toFixed(1)}°`;
+    }
     }
 
     prevTime = time;
