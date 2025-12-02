@@ -1,9 +1,6 @@
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css'
 import * as THREE from 'three';
 
@@ -30,10 +27,14 @@ const mouse = new THREE.Vector2();
 const smartDevices = []; // Array to hold smart home device objects (NO OBJECTS ADDED YET)
 
 let debugEl;
+let debugRaycastLine; // Visual representation of the raycast
+const DEBUG_RAYCAST = false; // Toggle debug visualization
+
+const gltfLoader = new GLTFLoader();
 
 init();
 
-function init() { 
+async function init() { 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(-2, 2.8, -4.5);
 
@@ -55,6 +56,13 @@ function init() {
     document.body.appendChild(debugEl);
 
     scene = new THREE.Scene();
+
+    if (DEBUG_RAYCAST) {
+        const rayGeometry = new THREE.BufferGeometry();
+        const rayMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+        debugRaycastLine = new THREE.Line(rayGeometry, rayMaterial);
+        scene.add(debugRaycastLine);
+    }
 
     controls = new PointerLockControls(camera, document.body);
 
@@ -91,6 +99,8 @@ function init() {
         });
         scene.add(root);
     });
+
+    await loadAllModels();
 
     const onKeyDown = function ( event ) {
 		switch ( event.code ) {
@@ -188,20 +198,53 @@ function onWindowResize() {
     }
 }
 
+// Helper: find the smart device root for an intersected object
+function findSmartDeviceRoot(obj) {
+    let current = obj;
+    while (current) {
+        if (smartDevices.includes(current)) return current;
+        current = current.parent;
+    }
+    return null;
+}
+
 function handleInteraction() {
-    // Cast a ray from the camera to detect objects in front
-    interactionRaycaster.setFromCamera(mouse, camera);
-    // Raycast against all objects in the scene (TODO: optimize by using a specific list)
+    // Cast a ray from the camera forward
+    const rayOrigin = camera.position.clone();
+    const rayDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    
+    interactionRaycaster.set(rayOrigin, rayDirection);
+    
+    // Visualize the raycast for debugging
+    if (DEBUG_RAYCAST && debugRaycastLine) {
+        const rayLength = 50;
+        const rayEnd = rayOrigin.clone().addScaledVector(rayDirection, rayLength);
+        const positions = new Float32Array([
+            rayOrigin.x, rayOrigin.y, rayOrigin.z,
+            rayEnd.x, rayEnd.y, rayEnd.z
+        ]);
+        debugRaycastLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    }
+    
+    // Raycast against all objects in the scene
     const intersects = interactionRaycaster.intersectObjects(scene.children, true);
 
     if (intersects.length > 0) {
-        const closestObject = intersects[0].object;
-        console.log('Interacted with:', closestObject);
-
-        // Example interaction: change color of the object (TODO: implement pop-up)
-        if (smartDevices.includes(closestObject)) {
-            // GUI pop-up code would go here
+        console.log(`Hit ${intersects.length} objects`);
+        // Find the closest smart device in the intersection results
+        for (let intersection of intersects) {
+            const obj = intersection.object;
+            
+            // Walk up the hierarchy to find the smart device root
+            const smartDevice = findSmartDeviceRoot(obj);
+            if (smartDevice && smartDevice.deviceConfig) {
+                console.log(`Interacted with: ${smartDevice.deviceConfig.type}`);
+                smartDevice.deviceConfig.onInteract(smartDevice);
+                break;
+            }
         }
+    } else {
+        console.log('No objects hit by raycast');
     }
 }
 
@@ -248,4 +291,68 @@ function animate() {
 
     prevTime = time;
     renderer.render(scene, camera);
+}
+
+async function loadAllModels() {
+    try {
+        await loadModel('./models/2roomflat.glb', { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 1);
+        await loadModel('./models/Light Switch.glb', { x: -0.3, y: 2, z: -5.68 }, { x: 0, y: Math.PI / 2 * 3, z: 0 }, 2, {
+            type: 'lightSwitch',
+            isOn: false,
+            onInteract: toggleLightSwitch
+        });
+        // TODO: add more models as needed
+    } catch (error) {
+        console.error('Error loading models:', error);
+    }
+}
+
+function loadModel(url, position = { x: 0, y: 0, z: 0 }, rotation = { x: 0, y: 0, z: 0 }, scale = 1, deviceConfig = null) {
+    return new Promise((resolve, reject) => {
+        gltfLoader.load(url, (gltf) => {
+            const model = gltf.scene;
+                
+            // Set position and scale
+            model.position.set(position.x, position.y, position.z);
+            model.rotation.set(rotation.x, rotation.y, rotation.z);
+            model.scale.set(scale, scale, scale);
+                
+            // Configure shadows and materials
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.material && !child.material.transparent) {
+                        child.castShadow = true;
+                    }
+                    child.receiveShadow = true;
+                }
+            });
+            scene.add(model);
+            
+            // Only add to smartDevices if it has device config
+            if (deviceConfig) {
+                model.deviceConfig = deviceConfig;
+                smartDevices.push(model);
+                console.log(`Is it inside smartDevices: ${smartDevices.includes(model)}`);
+                console.log(`Loaded smart device: ${deviceConfig.type}`);
+            }
+            
+            resolve(model);
+        }, undefined, reject);
+    });
+}
+
+function toggleLightSwitch(model) {
+    model.deviceConfig.isOn = !model.deviceConfig.isOn;
+    console.log(`Light Switch is now ${model.deviceConfig.isOn ? 'ON' : 'OFF'}`);
+    
+    // TODO: Add visual feedback (rotate model, change material color, etc.)
+    if (model.deviceConfig.isOn) {
+        model.rotation.z += Math.PI;
+        model.rotation.y += Math.PI;
+        model.position.y += 0.02;
+    } else {
+        model.rotation.z -= Math.PI;
+        model.rotation.y += Math.PI;
+        model.position.y -= 0.02;
+    }
 }
