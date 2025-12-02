@@ -1,10 +1,13 @@
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css'
 import * as THREE from 'three';
 
-let camera, scene, renderer, controls;
+let camera, scene, renderer, controls, composer;
 
 // Movement variables
 let moveForward = false;
@@ -78,6 +81,14 @@ function init() {
     const url = './models/2roomflat.glb';
     gltfLoader.load(url, (gltf) => {
         const root = gltf.scene;
+        root.traverse((child) => { 
+            if (child.isMesh) {
+                if (child.material && !child.material.transparent) {
+                    child.castShadow = true;
+                }
+                child.receiveShadow = true;
+            }
+        });
         scene.add(root);
     });
 
@@ -132,6 +143,8 @@ function init() {
 	renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
@@ -143,10 +156,23 @@ function init() {
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             scene.background = envMap;
             scene.environment = envMap;
+            scene.environmentIntensity = 0.4;
+            
             texture.dispose();
             pmremGenerator.dispose();
         }
     )
+    const light = new THREE.DirectionalLight(0xffffff, 1.5);
+        light.position.set(15, 15, 10); // Adjust to match HDR lighting
+        light.castShadow = true;
+        light.shadow.mapSize.width = 2048;
+        light.shadow.mapSize.height = 2048;
+        light.shadow.camera.far = 100;
+        light.shadow.camera.left = -50;
+        light.shadow.camera.right = 50;
+        light.shadow.camera.top = 50;
+        light.shadow.camera.bottom = -50;
+        scene.add(light);
 
 	renderer.setAnimationLoop(animate);
     
@@ -157,6 +183,9 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
 	renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) {
+        composer.setSize(window.innerWidth, window.innerHeight); 
+    }
 }
 
 function handleInteraction() {
@@ -206,14 +235,15 @@ function animate() {
 
         // Keep camera at a constant height
         controls.object.position.y = 2.8;
-
+        
+        // TODO: remove after project is finished
         if (debugEl && camera) {
         const p = camera.position;
         const r = camera.rotation;
         debugEl.textContent =
             `pos: ${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}\n` +
             `rot: ${THREE.MathUtils.radToDeg(r.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.z).toFixed(1)}°`;
-    }
+        }
     }
 
     prevTime = time;
