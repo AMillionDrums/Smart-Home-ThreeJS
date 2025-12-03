@@ -19,7 +19,7 @@ let camera, scene, renderer, controls;
 const gltfLoader = new GLTFLoader();
 const smartDevices = [];
 
-let ceilingLampLight = null;
+let ceilingLampLight1 = null;
 let ceilingLampHelper = null;
 
 // Movement states
@@ -32,8 +32,8 @@ let playerOnFloor = false;
 
 // Player capsule collider (spawn point)
 const playerCollider = new Capsule(
-    new THREE.Vector3(-2, 3.2 - 1.2, -4.5), // bottom
-    new THREE.Vector3(-2, 4.5, -4.5),       // top (camera height)
+    new THREE.Vector3(-2, 0.2, -4.5), // bottom
+    new THREE.Vector3(-2, 2.8, -4.5),       // top (camera height)
     0.35                                    // radius
 );
 
@@ -52,6 +52,7 @@ async function init() {
         0.1,
         1000
     );
+    camera.position.set(-2, 2.8, -4.5);
     camera.rotation.order = "YXZ"; // FPS rotation
 
 
@@ -153,17 +154,22 @@ async function loadApartment() {
             });
 
             // Ceiling lamp (light off by default)
-            ceilingLampLight = new THREE.PointLight(0xfff1c3, 1, 0, 2);
-            ceilingLampLight.position.set(-1.23, 4.4, -3.47);
+            ceilingLampLight1 = new THREE.PointLight(0xfff1c3, 20, 0, 2);
+            ceilingLampLight1.position.set(-1.23, 4.4, -3.47);
+            ceilingLampLight1.castShadow = true;
+            ceilingLampLight1.visible = false;
 
-            ceilingLampLight.castShadow = true;
-            ceilingLampLight.visible = false;
+            ceilingLampLight1.shadow.camera.near = 0.1;
+            ceilingLampLight1.shadow.camera.far = 10;
+            ceilingLampLight1.shadow.bias = 0.0001;
+            ceilingLampLight1.shadow.normalBias = 0.02;
+            ceilingLampLight1.shadow.radius = 2;
 
-            scene.add(ceilingLampLight);
+            scene.add(ceilingLampLight1);
 
             // Debug helper (keep but hidden)
-            ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight, 0.15);
-            ceilingLampHelper.visible = true;
+            ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight1, 0.15);
+            ceilingLampHelper.visible = false;
             scene.add(ceilingLampHelper);
 
             resolve();
@@ -190,7 +196,7 @@ async function loadLightSwitch() {
             model.deviceConfig = {
                 type: "lightSwitch",
                 isOn: false,
-                linkedLight: ceilingLampLight,
+                linkedLight: ceilingLampLight1,
                 intensity: 1.8
             };
 
