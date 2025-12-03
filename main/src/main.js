@@ -30,6 +30,9 @@ let debugEl;
 let debugRaycastLine; // Visual representation of the raycast
 const DEBUG_RAYCAST = false; // Toggle debug visualization
 
+let ceilingLampLight; // dynamic light for baked-in ceiling lamp (position set manually)
+let ceilingLampHelper;
+
 const gltfLoader = new GLTFLoader();
 
 init();
@@ -98,6 +101,23 @@ async function init() {
             }
         });
         scene.add(root);
+
+        // Create a dynamic light for a baked-in ceiling lamp.
+        // Adjust the position below to match the baked lamp location inside the flat model.
+        // You can tweak color, intensity and distance to match your scene.
+        ceilingLampLight = new THREE.SpotLight(0xfff1c3, 3, 10, Math.PI, 0.5, 1);
+        // Set this to the lamp position in world coordinates (edit these values)
+        ceilingLampLight.position.set(-1.23, 4.6, -3.47);
+        ceilingLampLight.target.position.set(-1.23, 0, -3.47);
+        scene.add(ceilingLampLight.target);
+        ceilingLampLight.castShadow = true;
+        ceilingLampLight.visible = false; // start off
+        scene.add(ceilingLampLight);
+
+        // Optional small visual helper for debugging the light position
+        ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight, 0.15);
+        ceilingLampHelper.visible = false; // turn true to debug
+        scene.add(ceilingLampHelper);
     });
 
     await loadAllModels();
@@ -296,10 +316,15 @@ function animate() {
 async function loadAllModels() {
     try {
         await loadModel('./models/2roomflat.glb', { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 1);
-        await loadModel('./models/Light Switch.glb', { x: -0.3, y: 2, z: -5.68 }, { x: 0, y: Math.PI / 2 * 3, z: 0 }, 2, {
+        await loadModel('./models/Light Switch.glb', { x: -0.3, y: 2, z: -5.68 }, { x: 0, y: 0, z: 0 }, 3, {
             type: 'lightSwitch',
             isOn: false,
-            onInteract: toggleLightSwitch
+            onInteract: toggleLightSwitch,
+            // Link the ceiling lamp light (created in init after flat is loaded)
+            linkedLight: ceilingLampLight,
+            linkedLightHelper: ceilingLampHelper,
+            // desired intensity when ON
+            lightIntensity: 1.8
         });
         // TODO: add more models as needed
     } catch (error) {
@@ -343,16 +368,32 @@ function loadModel(url, position = { x: 0, y: 0, z: 0 }, rotation = { x: 0, y: 0
 
 function toggleLightSwitch(model) {
     model.deviceConfig.isOn = !model.deviceConfig.isOn;
-    console.log(`Light Switch is now ${model.deviceConfig.isOn ? 'ON' : 'OFF'}`);
-    
-    // TODO: Add visual feedback (rotate model, change material color, etc.)
-    if (model.deviceConfig.isOn) {
-        model.rotation.z += Math.PI;
-        model.rotation.y += Math.PI;
-        model.position.y += 0.02;
-    } else {
-        model.rotation.z -= Math.PI;
-        model.rotation.y += Math.PI;
-        model.position.y -= 0.02;
+    const isOn = model.deviceConfig.isOn;
+    console.log(`Light Switch is now ${isOn ? 'ON' : 'OFF'}`);
+
+    // Rotate the switch slightly to indicate state change (adjust axis/amount to taste)
+    const angle = Math.PI;
+    model.rotation.z += isOn ? angle : -angle;
+
+    // Toggle linked light if provided
+    const light = model.deviceConfig && model.deviceConfig.linkedLight;
+    if (light) {
+        light.intensity = isOn ? (model.deviceConfig.lightIntensity || 1.5) : 0;
+        light.visible = isOn;
+    }
+
+    // Toggle helper visibility if provided
+    //const helper = model.deviceConfig && model.deviceConfig.linkedLightHelper;
+    //if (helper) helper.visible = isOn;
+
+    // Optional: if you know specific mesh parts of the flat that should glow, provide them
+    // in deviceConfig.linkedMeshes (array of mesh references). Example toggles emissive.
+    if (model.deviceConfig && model.deviceConfig.linkedMeshes) {
+        model.deviceConfig.linkedMeshes.forEach(mesh => {
+            if (mesh.material && mesh.material.emissive) {
+                mesh.material.emissive.set(isOn ? 0xffcc66 : 0x000000);
+                mesh.material.needsUpdate = true;
+            }
+        });
     }
 }
