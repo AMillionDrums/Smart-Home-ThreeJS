@@ -1,181 +1,210 @@
-import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
-import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import './style.css'
+// -----------------------------------------------------------------------------
+// IMPORTS
+// -----------------------------------------------------------------------------
 import * as THREE from 'three';
+import './style.css';
 
-let camera, scene, renderer, controls, composer;
+import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 
-// Movement variables
-let moveForward = false;
-let moveBackward = false;
-let moveLeft = false;
-let moveRight = false;
+import { Octree } from 'three/examples/jsm/math/Octree.js';
+import { Capsule } from 'three/examples/jsm/math/Capsule.js';
 
-// Velocity and direction
-let prevTime = performance.now();
-const velocity = new THREE.Vector3();
-const direction = new THREE.Vector3();
 
-// For collision detection
-const normalObjects = []; // Array to hold collidable objects (flat, furniture, etc.)
-let raycaster;
-
-// For interaction raycasting
-const interactionRaycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const smartDevices = []; // Array to hold smart home device objects (NO OBJECTS ADDED YET)
-
-let debugEl;
-let debugRaycastLine; // Visual representation of the raycast
-const DEBUG_RAYCAST = false; // Toggle debug visualization
-
-let ceilingLampLight; // dynamic light for baked-in ceiling lamp (position set manually)
-let ceilingLampHelper;
-
+// -----------------------------------------------------------------------------
+// GLOBALS
+// -----------------------------------------------------------------------------
+let camera, scene, renderer, controls;
 const gltfLoader = new GLTFLoader();
+const smartDevices = [];
 
+let ceilingLampLight = null;
+let ceilingLampHelper = null;
+
+// Movement states
+const keyStates = {};
+
+// Physics (capsule + octree)
+const worldOctree = new Octree();
+const playerVelocity = new THREE.Vector3();
+let playerOnFloor = false;
+
+// Player capsule collider (spawn point)
+const playerCollider = new Capsule(
+    new THREE.Vector3(-2, 3.2 - 1.2, -4.5), // bottom
+    new THREE.Vector3(-2, 4.5, -4.5),       // top (camera height)
+    0.35                                    // radius
+);
+
+
+// -----------------------------------------------------------------------------
+// INIT
+// -----------------------------------------------------------------------------
 init();
 
-async function init() { 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(-2, 2.8, -4.5);
+async function init() {
 
-    debugEl = document.createElement('div');
-    debugEl.id = 'camera-debug';
-    Object.assign(debugEl.style, {
-        position: 'absolute',
-        top: '8px',
-        left: '8px',
-        color: '#fff',
-        background: 'rgba(0,0,0,0.5)',
-        padding: '6px',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        whiteSpace: 'pre',
-        zIndex: 1000,
-        pointerEvents: 'none'
-    });
-    document.body.appendChild(debugEl);
+    // CAMERA
+    camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+    );
+    camera.rotation.order = "YXZ"; // FPS rotation
 
+
+    // SCENE
     scene = new THREE.Scene();
 
-    if (DEBUG_RAYCAST) {
-        const rayGeometry = new THREE.BufferGeometry();
-        const rayMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
-        debugRaycastLine = new THREE.Line(rayGeometry, rayMaterial);
-        scene.add(debugRaycastLine);
-    }
 
+    // RENDERER
+    renderer = new THREE.WebGLRenderer({
+        canvas: document.querySelector("#bg"),
+        antialias: true
+    });
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+
+
+    // CONTROLS
     controls = new PointerLockControls(camera, document.body);
 
-    const blocker = document.getElementById('blocker');
-    const instructions = document.getElementById('instructions');
-
-    instructions.addEventListener('click', function () {
+    document.getElementById("instructions").addEventListener("click", () => {
         controls.lock();
     });
 
-    controls.addEventListener('lock', function () {
-        instructions.style.display = 'none';
-        blocker.style.display = 'none';
+    controls.addEventListener("lock", () => {
+        document.getElementById("blocker").style.display = "none";
     });
-    
-    controls.addEventListener('unlock', function () {
-        blocker.style.display = 'block';
-        instructions.style.display = '';
-    });
-    
-    scene.add(controls.object);
 
-    const gltfLoader = new GLTFLoader();
-    const url = './models/2roomflat.glb';
-    gltfLoader.load(url, (gltf) => {
-        const root = gltf.scene;
-        root.traverse((child) => { 
-            if (child.isMesh) {
-                if (child.material && !child.material.transparent) {
-                    child.castShadow = true;
+    controls.addEventListener("unlock", () => {
+        document.getElementById("blocker").style.display = "block";
+    });
+
+
+    // --------------------------
+    // LOAD APARTMENT MODEL
+    // --------------------------
+    await loadApartment();
+
+
+    // --------------------------
+    // LOAD SMART DEVICES
+    // --------------------------
+    await loadLightSwitch();
+
+
+    // --------------------------
+    // LOAD HDR ENVIRONMENT
+    // --------------------------
+    loadHDR();
+
+
+    // KEYBOARD EVENTS
+    document.addEventListener("keydown", e => {
+        keyStates[e.code] = true;
+
+        // JUMP:
+        //if (e.code === "Space" && playerOnFloor) {
+        //playerVelocity.y = 10;   // adjust strength if needed
+        //}
+
+        // INTERACTION:
+        if (e.code === "KeyE") {
+            handleInteraction();
+        }
+    });
+    document.addEventListener("keyup", e => keyStates[e.code] = false);
+
+    window.addEventListener("resize", onWindowResize);
+
+    renderer.setAnimationLoop(animate);
+}
+
+
+// -----------------------------------------------------------------------------
+// LOAD APARTMENT GLB + BUILD COLLISION OCTREE
+// -----------------------------------------------------------------------------
+async function loadApartment() {
+
+    return new Promise((resolve, reject) => {
+
+        gltfLoader.load('/models/2roomflat.glb', gltf => {
+
+            const root = gltf.scene;
+            scene.add(root);
+
+            // Build collision octree
+            worldOctree.fromGraphNode(root);
+
+            // Shadows
+            root.traverse(obj => {
+                if (obj.isMesh) {
+                    obj.castShadow = true;
+                    obj.receiveShadow = true;
                 }
-                child.receiveShadow = true;
-            }
-        });
-        scene.add(root);
+            });
 
-        // Create a dynamic light for a baked-in ceiling lamp.
-        // Adjust the position below to match the baked lamp location inside the flat model.
-        // You can tweak color, intensity and distance to match your scene.
-        ceilingLampLight = new THREE.SpotLight(0xfff1c3, 3, 10, Math.PI, 0.5, 1);
-        // Set this to the lamp position in world coordinates (edit these values)
-        ceilingLampLight.position.set(-1.23, 4.6, -3.47);
-        ceilingLampLight.target.position.set(-1.23, 0, -3.47);
-        scene.add(ceilingLampLight.target);
-        ceilingLampLight.castShadow = true;
-        ceilingLampLight.visible = false; // start off
-        scene.add(ceilingLampLight);
+            // Ceiling lamp (light off by default)
+            ceilingLampLight = new THREE.PointLight(0xfff1c3, 1, 0, 2);
+            ceilingLampLight.position.set(-1.23, 4.4, -3.47);
 
-        // Optional small visual helper for debugging the light position
-        ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight, 0.15);
-        ceilingLampHelper.visible = false; // turn true to debug
-        scene.add(ceilingLampHelper);
+            ceilingLampLight.castShadow = true;
+            ceilingLampLight.visible = false;
+
+            scene.add(ceilingLampLight);
+
+            // Debug helper (keep but hidden)
+            ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight, 0.15);
+            ceilingLampHelper.visible = true;
+            scene.add(ceilingLampHelper);
+
+            resolve();
+        }, undefined, reject);
     });
+}
 
-    await loadAllModels();
 
-    const onKeyDown = function ( event ) {
-		switch ( event.code ) {
-			case 'KeyW':
-				moveForward = true;
-				break;
-			case 'KeyA':
-				moveLeft = true;
-				break;
-			case 'KeyS':
-				moveBackward = true;
-				break;
-			case 'KeyD':
-				moveRight = true;
-				break;
-            case 'KeyE':
-                handleInteraction();
-                break;
-		}
-	};
+// -----------------------------------------------------------------------------
+// LOAD LIGHT SWITCH
+// -----------------------------------------------------------------------------
+async function loadLightSwitch() {
 
-    const onKeyUp = function ( event ) {
-		switch ( event.code ) {
-			case 'KeyW':
-				moveForward = false;
-				break;
-			case 'KeyA':
-				moveLeft = false;
-				break;
-			case 'KeyS':
-				moveBackward = false;
-				break;
-			case 'KeyD':
-				moveRight = false;
-				break;
-		}
-	};
+    return new Promise((resolve, reject) => {
 
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('keyup', onKeyUp);
+        gltfLoader.load('/models/Light Switch.glb', gltf => {
 
-    // Initialize raycaster for collision detection
-    raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 10);
+            const model = gltf.scene;
+            scene.add(model);
 
-    renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        canvas: document.querySelector('#bg'),
+            model.position.set(-0.3, 2, -5.68);
+            model.scale.set(3, 3, 3);
+
+            model.deviceConfig = {
+                type: "lightSwitch",
+                isOn: false,
+                linkedLight: ceilingLampLight,
+                intensity: 1.8
+            };
+
+            smartDevices.push(model);
+            resolve();
+        }, undefined, reject);
     });
-	renderer.setPixelRatio(window.devicePixelRatio);
-	renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}
 
+
+// -----------------------------------------------------------------------------
+// HDR ENVIRONMENT
+// -----------------------------------------------------------------------------
+function loadHDR() {
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
@@ -186,214 +215,156 @@ async function init() {
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             scene.background = envMap;
             scene.environment = envMap;
-            scene.environmentIntensity = 0.4;
+            scene.environmentIntensity = 0.1;
             
             texture.dispose();
             pmremGenerator.dispose();
         }
     )
-    const light = new THREE.DirectionalLight(0xffffff, 1.5);
-        light.position.set(15, 15, 10); // Adjust to match HDR lighting
-        light.castShadow = true;
-        light.shadow.mapSize.width = 2048;
-        light.shadow.mapSize.height = 2048;
-        light.shadow.camera.far = 100;
-        light.shadow.camera.left = -50;
-        light.shadow.camera.right = 50;
-        light.shadow.camera.top = 50;
-        light.shadow.camera.bottom = -50;
-        scene.add(light);
-
-	renderer.setAnimationLoop(animate);
-    
-    window.addEventListener('resize', onWindowResize);
 }
 
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-	camera.updateProjectionMatrix();
-	renderer.setSize(window.innerWidth, window.innerHeight);
-    if (composer) {
-        composer.setSize(window.innerWidth, window.innerHeight); 
-    }
-}
 
-// Helper: find the smart device root for an intersected object
-function findSmartDeviceRoot(obj) {
-    let current = obj;
-    while (current) {
-        if (smartDevices.includes(current)) return current;
-        current = current.parent;
-    }
-    return null;
-}
 
+
+// -----------------------------------------------------------------------------
+// INTERACTION (Press E)
+// -----------------------------------------------------------------------------
 function handleInteraction() {
-    // Cast a ray from the camera forward
-    const rayOrigin = camera.position.clone();
-    const rayDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-    
-    interactionRaycaster.set(rayOrigin, rayDirection);
-    
-    // Visualize the raycast for debugging
-    if (DEBUG_RAYCAST && debugRaycastLine) {
-        const rayLength = 50;
-        const rayEnd = rayOrigin.clone().addScaledVector(rayDirection, rayLength);
-        const positions = new Float32Array([
-            rayOrigin.x, rayOrigin.y, rayOrigin.z,
-            rayEnd.x, rayEnd.y, rayEnd.z
-        ]);
-        debugRaycastLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    }
-    
-    // Raycast against all objects in the scene
-    const intersects = interactionRaycaster.intersectObjects(scene.children, true);
 
-    if (intersects.length > 0) {
-        console.log(`Hit ${intersects.length} objects`);
-        // Find the closest smart device in the intersection results
-        for (let intersection of intersects) {
-            const obj = intersection.object;
-            
-            // Walk up the hierarchy to find the smart device root
-            const smartDevice = findSmartDeviceRoot(obj);
-            if (smartDevice && smartDevice.deviceConfig) {
-                console.log(`Interacted with: ${smartDevice.deviceConfig.type}`);
-                smartDevice.deviceConfig.onInteract(smartDevice);
-                break;
+    const raycaster = new THREE.Raycaster();
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    raycaster.set(camera.position, dir);
+
+    const hits = raycaster.intersectObjects(scene.children, true);
+
+    if (hits.length === 0) return;
+
+    for (const hit of hits) {
+
+        let obj = hit.object;
+
+        while (obj) {
+            if (smartDevices.includes(obj)) {
+                toggleLightSwitch(obj);
+                return;
             }
+            obj = obj.parent;
         }
-    } else {
-        console.log('No objects hit by raycast');
     }
 }
 
-function animate() {
-    const time = performance.now();
 
-    if (controls.isLocked === true) {
-        // Movement physics
-        raycaster.ray.origin.copy(controls.object.position);
-        raycaster.ray.origin.y -= 10;
+// Toggle the lamp
+function toggleLightSwitch(model) {
 
-        const delta = (time - prevTime) / 1000;
+    model.deviceConfig.isOn = !model.deviceConfig.isOn;
+    const isOn = model.deviceConfig.isOn;
 
-        // Apply damping and gravity
-        velocity.x -= velocity.x * 10.0 * delta;
-        velocity.z -= velocity.z * 10.0 * delta;
-        velocity.y -= 9.8 * 100.0 * delta;
+    // Rotate switch
+    model.rotation.z += Math.PI;
 
-        // Calculate movement direction
-        direction.z = Number(moveForward) - Number(moveBackward);
-        direction.x = Number(moveRight) - Number(moveLeft);
-        direction.normalize();
+    // Light toggling
+    if (model.deviceConfig.linkedLight) {
+        model.deviceConfig.linkedLight.visible = isOn;
+        model.deviceConfig.linkedLight.intensity =
+            isOn ? model.deviceConfig.intensity : 0;
+    }
+}
 
-        // Apply movement forces
-        if (moveForward || moveBackward) velocity.z -= direction.z * 50 * delta;
-        if (moveLeft || moveRight) velocity.x -= direction.x * 50 * delta;
 
-        // Move the camera based on velocity
-        controls.moveRight(-velocity.x * delta);
-        controls.moveForward(-velocity.z * delta);
+// -----------------------------------------------------------------------------
+// PLAYER MOVEMENT HELPERS
+// -----------------------------------------------------------------------------
+function getForwardVector() {
+    const v = new THREE.Vector3();
+    camera.getWorldDirection(v);
+    v.y = 0;
+    return v.normalize();
+}
 
-        // Keep camera at a constant height
-        controls.object.position.y = 2.8;
-        
-        // TODO: remove after project is finished
-        if (debugEl && camera) {
-        const p = camera.position;
-        const r = camera.rotation;
-        debugEl.textContent =
-            `pos: ${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}\n` +
-            `rot: ${THREE.MathUtils.radToDeg(r.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.z).toFixed(1)}°`;
-        }
+function getSideVector() {
+    const v = new THREE.Vector3();
+    camera.getWorldDirection(v);
+    v.y = 0;
+    v.normalize();
+    v.cross(camera.up);
+    return v;
+}
+
+
+// -----------------------------------------------------------------------------
+// PLAYER PHYSICS (COLLISION + MOVEMENT)
+// -----------------------------------------------------------------------------
+function updatePlayer(deltaTime) {
+
+    let damping = Math.exp(-10 * deltaTime) - 1;
+
+    if (!playerOnFloor) {
+        playerVelocity.y -= 15 * deltaTime;
+        damping *= 0.1;
     }
 
-    prevTime = time;
+    playerVelocity.addScaledVector(playerVelocity, damping);
+
+    const speed = playerOnFloor ? 25 : 8;
+
+    if (keyStates["KeyW"]) playerVelocity.addScaledVector(getForwardVector(), speed * deltaTime);
+    if (keyStates["KeyS"]) playerVelocity.addScaledVector(getForwardVector(), -speed * deltaTime);
+    if (keyStates["KeyA"]) playerVelocity.addScaledVector(getSideVector(), -speed * deltaTime);
+    if (keyStates["KeyD"]) playerVelocity.addScaledVector(getSideVector(), speed * deltaTime);
+
+    const deltaPos = playerVelocity.clone().multiplyScalar(deltaTime);
+    playerCollider.translate(deltaPos);
+
+    playerCollisions();
+
+    camera.position.copy(playerCollider.end);
+}
+
+
+// Capsule collision with octree
+function playerCollisions() {
+
+    const result = worldOctree.capsuleIntersect(playerCollider);
+
+    playerOnFloor = false;
+
+    if (result) {
+
+        playerOnFloor = result.normal.y > 0;
+
+        playerCollider.translate(result.normal.multiplyScalar(result.depth));
+
+        if (!playerOnFloor) {
+            playerVelocity.addScaledVector(
+                result.normal,
+                -result.normal.dot(playerVelocity)
+            );
+        }
+    }
+}
+
+
+// -----------------------------------------------------------------------------
+// MAIN LOOP
+// -----------------------------------------------------------------------------
+function animate() {
+
+    if (controls.isLocked) {
+        const delta = 0.016; // ~60fps
+        updatePlayer(delta);
+    }
+
     renderer.render(scene, camera);
 }
 
-async function loadAllModels() {
-    try {
-        await loadModel('./models/2roomflat.glb', { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 1);
-        await loadModel('./models/Light Switch.glb', { x: -0.3, y: 2, z: -5.68 }, { x: 0, y: 0, z: 0 }, 3, {
-            type: 'lightSwitch',
-            isOn: false,
-            onInteract: toggleLightSwitch,
-            // Link the ceiling lamp light (created in init after flat is loaded)
-            linkedLight: ceilingLampLight,
-            linkedLightHelper: ceilingLampHelper,
-            // desired intensity when ON
-            lightIntensity: 1.8
-        });
-        // TODO: add more models as needed
-    } catch (error) {
-        console.error('Error loading models:', error);
-    }
-}
 
-function loadModel(url, position = { x: 0, y: 0, z: 0 }, rotation = { x: 0, y: 0, z: 0 }, scale = 1, deviceConfig = null) {
-    return new Promise((resolve, reject) => {
-        gltfLoader.load(url, (gltf) => {
-            const model = gltf.scene;
-                
-            // Set position and scale
-            model.position.set(position.x, position.y, position.z);
-            model.rotation.set(rotation.x, rotation.y, rotation.z);
-            model.scale.set(scale, scale, scale);
-                
-            // Configure shadows and materials
-            model.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.material && !child.material.transparent) {
-                        child.castShadow = true;
-                    }
-                    child.receiveShadow = true;
-                }
-            });
-            scene.add(model);
-            
-            // Only add to smartDevices if it has device config
-            if (deviceConfig) {
-                model.deviceConfig = deviceConfig;
-                smartDevices.push(model);
-                console.log(`Is it inside smartDevices: ${smartDevices.includes(model)}`);
-                console.log(`Loaded smart device: ${deviceConfig.type}`);
-            }
-            
-            resolve(model);
-        }, undefined, reject);
-    });
-}
+// -----------------------------------------------------------------------------
+// RESIZE
+// -----------------------------------------------------------------------------
+function onWindowResize() {
 
-function toggleLightSwitch(model) {
-    model.deviceConfig.isOn = !model.deviceConfig.isOn;
-    const isOn = model.deviceConfig.isOn;
-    console.log(`Light Switch is now ${isOn ? 'ON' : 'OFF'}`);
-
-    // Rotate the switch slightly to indicate state change (adjust axis/amount to taste)
-    const angle = Math.PI;
-    model.rotation.z += isOn ? angle : -angle;
-
-    // Toggle linked light if provided
-    const light = model.deviceConfig && model.deviceConfig.linkedLight;
-    if (light) {
-        light.intensity = isOn ? (model.deviceConfig.lightIntensity || 1.5) : 0;
-        light.visible = isOn;
-    }
-
-    // Toggle helper visibility if provided
-    //const helper = model.deviceConfig && model.deviceConfig.linkedLightHelper;
-    //if (helper) helper.visible = isOn;
-
-    // Optional: if you know specific mesh parts of the flat that should glow, provide them
-    // in deviceConfig.linkedMeshes (array of mesh references). Example toggles emissive.
-    if (model.deviceConfig && model.deviceConfig.linkedMeshes) {
-        model.deviceConfig.linkedMeshes.forEach(mesh => {
-            if (mesh.material && mesh.material.emissive) {
-                mesh.material.emissive.set(isOn ? 0xffcc66 : 0x000000);
-                mesh.material.needsUpdate = true;
-            }
-        });
-    }
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
