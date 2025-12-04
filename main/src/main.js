@@ -221,7 +221,7 @@ function loadHDR() {
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             scene.background = envMap;
             scene.environment = envMap;
-            scene.environmentIntensity = 0.1;
+            scene.environmentIntensity = 0.5;
             
             texture.dispose();
             pmremGenerator.dispose();
