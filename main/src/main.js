@@ -11,6 +11,13 @@ import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { Octree } from 'three/examples/jsm/math/Octree.js';
 import { Capsule } from 'three/examples/jsm/math/Capsule.js';
 
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
+import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass';
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader';
+import { CopyShader } from 'three/examples/jsm/shaders/CopyShader';
+
 
 // -----------------------------------------------------------------------------
 // GLOBALS
@@ -36,6 +43,9 @@ const playerCollider = new Capsule(
     new THREE.Vector3(-2, 2.8, -4.5),       // top (camera height)
     0.35                                    // radius
 );
+
+// Post-processing
+let composer;
 
 
 // -----------------------------------------------------------------------------
@@ -73,6 +83,16 @@ async function init() {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputEncoding = THREE.sRGBEncoding;
 
+    // POST-PROCESSING
+    composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    const gammaPass = new ShaderPass(GammaCorrectionShader);
+    composer.addPass(gammaPass);
+    const copyPass = new ShaderPass(CopyShader);
+    copyPass.renderToScreen = true;
+    composer.addPass(copyPass);
+
 
     // CONTROLS
     controls = new PointerLockControls(camera, document.body);
@@ -107,7 +127,7 @@ async function init() {
     // --------------------------
     loadHDR();
 
-
+    
     // KEYBOARD EVENTS
     document.addEventListener("keydown", e => {
         keyStates[e.code] = true;
@@ -220,8 +240,16 @@ function loadHDR() {
         function (texture) { 
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             scene.background = envMap;
-            scene.environment = envMap;
-            scene.environmentIntensity = 0.5;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15); 
+            scene.add(ambientLight);
+
+            const hemisphereLight = new THREE.HemisphereLight(
+                0xffffff,
+                0x000000,
+                0.1
+            );
+            scene.add(hemisphereLight);
             
             texture.dispose();
             pmremGenerator.dispose();
@@ -361,7 +389,7 @@ function animate() {
         updatePlayer(delta);
     }
 
-    renderer.render(scene, camera);
+    composer.render();
 }
 
 
