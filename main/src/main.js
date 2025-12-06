@@ -27,6 +27,8 @@ const gltfLoader = new GLTFLoader();
 const smartDevices = [];
 
 let ceilingLampLight1 = null;
+let ceilingLampLight2 = null;
+let ceilingLampLight3 = null;
 let ceilingLampHelper = null;
 
 // Movement states
@@ -173,9 +175,9 @@ async function loadApartment() {
                 }
             });
 
-            // Ceiling lamp (light off by default)
+            // Ceiling lamps (light off by default)
             ceilingLampLight1 = new THREE.PointLight(0xfff1c3, 20, 0, 2);
-            ceilingLampLight1.position.set(-1.23, 4.4, -3.47);
+            ceilingLampLight1.position.set(-1.23, 4.4, -2.955);
             ceilingLampLight1.castShadow = true;
             ceilingLampLight1.visible = false;
 
@@ -185,7 +187,15 @@ async function loadApartment() {
             ceilingLampLight1.shadow.normalBias = 0.02;
             ceilingLampLight1.shadow.radius = 2;
 
+            ceilingLampLight2 = ceilingLampLight1.clone();
+            ceilingLampLight2.position.set(1.77, 4.4, -2.955);
+
+            ceilingLampLight3 = ceilingLampLight1.clone();
+            ceilingLampLight3.position.set(4.77, 4.4, -2.955);
+
             scene.add(ceilingLampLight1);
+            scene.add(ceilingLampLight2);
+            scene.add(ceilingLampLight3);
 
             // Debug helper (keep but hidden)
             ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight1, 0.15);
@@ -216,7 +226,7 @@ async function loadLightSwitch() {
             model.deviceConfig = {
                 type: "lightSwitch",
                 isOn: false,
-                linkedLight: ceilingLampLight1,
+                linkedLight: [ceilingLampLight1, ceilingLampLight2, ceilingLampLight3],
                 intensity: 1.8
             };
 
@@ -241,7 +251,7 @@ function loadHDR() {
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             scene.background = envMap;
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15); 
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
             scene.add(ambientLight);
 
             const hemisphereLight = new THREE.HemisphereLight(
@@ -297,11 +307,19 @@ function toggleLightSwitch(model) {
     // Rotate switch
     model.rotation.z += Math.PI;
 
-    // Light toggling
-    if (model.deviceConfig.linkedLight) {
+    // If linkedLight is an array
+    if (model.deviceConfig.linkedLight && Array.isArray(model.deviceConfig.linkedLight)) {
+        model.deviceConfig.linkedLight.forEach(light => {
+            if (light) {
+                light.visible = isOn;
+                light.intensity = isOn ? model.deviceConfig.intensity : 0;
+            }
+        });
+    } 
+    // If linkedLight is a single light (backward compatibility)
+    else if (model.deviceConfig.linkedLight) {
         model.deviceConfig.linkedLight.visible = isOn;
-        model.deviceConfig.linkedLight.intensity =
-            isOn ? model.deviceConfig.intensity : 0;
+        model.deviceConfig.linkedLight.intensity = isOn ? model.deviceConfig.intensity : 0;
     }
 }
 
