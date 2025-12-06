@@ -13,10 +13,10 @@ import { Capsule } from 'three/examples/jsm/math/Capsule.js';
 
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
-import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass';
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader';
 import { CopyShader } from 'three/examples/jsm/shaders/CopyShader';
+import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass';
 
 
 // -----------------------------------------------------------------------------
@@ -91,6 +91,12 @@ async function init() {
     composer.addPass(renderPass);
     const gammaPass = new ShaderPass(GammaCorrectionShader);
     composer.addPass(gammaPass);
+    const saoPass = new SAOPass(scene, camera);
+    saoPass.params.saoBias = 0.5;
+    saoPass.params.saoIntensity = 0.0007;
+    saoPass.params.saoScale = 1;
+    saoPass.params.saoKernelRadius = 60;
+    composer.addPass(saoPass);
     const copyPass = new ShaderPass(CopyShader);
     copyPass.renderToScreen = true;
     composer.addPass(copyPass);
@@ -172,6 +178,17 @@ async function loadApartment() {
                 if (obj.isMesh) {
                     obj.castShadow = true;
                     obj.receiveShadow = true;
+                    // Handle transparent materials
+                    if (obj.material) {
+                        if (obj.material.opacity < 1 || obj.material.transparent) {
+                            obj.material.transparent = true;
+                            obj.material.depthWrite = false;
+                            obj.material.side = THREE.DoubleSide;
+                    
+                            // Don't cast shadows from transparent objects
+                            obj.castShadow = false;
+                        }
+                    }
                 }
             });
 
@@ -254,12 +271,26 @@ function loadHDR() {
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
             scene.add(ambientLight);
 
-            const hemisphereLight = new THREE.HemisphereLight(
-                0xffffff,
-                0x000000,
-                0.1
-            );
+            const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x000000, 0.1);
             scene.add(hemisphereLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            directionalLight.position.set(20, 2.8, 17);
+            directionalLight.target.position.set(4.2, 0, 5.74);
+            directionalLight.castShadow = true;
+
+            directionalLight.shadow.camera.near = 0.1;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
+            directionalLight.shadow.bias = -0.0001;
+            directionalLight.shadow.normalBias = 0;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight.target);
+            scene.add(directionalLight);
             
             texture.dispose();
             pmremGenerator.dispose();
@@ -298,7 +329,7 @@ function handleInteraction() {
 }
 
 
-// Toggle the lamp
+// Toggle lights connected to the light switch
 function toggleLightSwitch(model) {
 
     model.deviceConfig.isOn = !model.deviceConfig.isOn;
@@ -407,6 +438,7 @@ function animate() {
         updatePlayer(delta);
     }
 
+    updateDebugHUD();
     composer.render();
 }
 
@@ -419,4 +451,47 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+
+// -----------------------------------------------------------------------------
+// DEBUG HUD
+// -----------------------------------------------------------------------------
+let debugHudEnabled = true;
+let frameCount = 0;
+let lastTime = performance.now();
+let fps = 60;
+
+function updateDebugHUD() {
+    if (!debugHudEnabled) return;
+    
+    // Camera position
+    const pos = camera.position;
+    document.getElementById('cam-pos').textContent = 
+        `${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}`;
+    
+    // Camera rotation (just yaw/pitch for FPS, ignore roll)
+    const rot = camera.rotation;
+    const pitch = THREE.MathUtils.radToDeg(rot.x).toFixed(1);
+    const yaw = THREE.MathUtils.radToDeg(rot.y).toFixed(1);
+    document.getElementById('cam-rot').textContent = 
+        `Pitch: ${pitch}°, Yaw: ${yaw}°`;
+    
+    // FPS calculation
+    frameCount++;
+    const currentTime = performance.now();
+    if (currentTime >= lastTime + 1000) {
+        fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+        frameCount = 0;
+        lastTime = currentTime;
+    }
+    document.getElementById('fps').textContent = fps;
+    
+    // Player velocity (from your existing playerVelocity variable)
+    document.getElementById('player-vel').textContent = 
+        `${playerVelocity.x.toFixed(2)}, ${playerVelocity.y.toFixed(2)}, ${playerVelocity.z.toFixed(2)}`;
+    
+    // Player on floor state
+    document.getElementById('player-floor').textContent = 
+        playerOnFloor ? 'YES' : 'NO';
 }
