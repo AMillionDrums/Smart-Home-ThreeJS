@@ -27,3 +27,22 @@ body {
 #bg {
     display: block;
 }
+
+#crosshair {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+    z-index: 100;
+    display: none;
+}
+
+#crosshair.active {
+    display: block;
+}

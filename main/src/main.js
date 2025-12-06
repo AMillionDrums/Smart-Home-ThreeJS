@@ -17,6 +17,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass';
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader';
 import { CopyShader } from 'three/examples/jsm/shaders/CopyShader';
 import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass';
 
 
 // -----------------------------------------------------------------------------
@@ -26,9 +27,17 @@ let camera, scene, renderer, controls;
 const gltfLoader = new GLTFLoader();
 const smartDevices = [];
 
+// Entrance/kitchen ceiling lamps
 let ceilingLampLight1 = null;
 let ceilingLampLight2 = null;
 let ceilingLampLight3 = null;
+// Living room ceiling lamps
+let ceilingLampLight4 = null;
+// Bedroom ceiling lamps
+let ceilingLampLight5 = null;
+// Bathroom ceiling lamps
+let ceilingLampLight6 = null;
+
 let ceilingLampHelper = null;
 
 // Movement states
@@ -48,6 +57,8 @@ const playerCollider = new Capsule(
 
 // Post-processing
 let composer;
+let saoPass;
+let outlinePass;
 
 
 // -----------------------------------------------------------------------------
@@ -89,14 +100,34 @@ async function init() {
     composer = new EffectComposer(renderer);
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
-    const gammaPass = new ShaderPass(GammaCorrectionShader);
-    composer.addPass(gammaPass);
-    const saoPass = new SAOPass(scene, camera);
+
+    // SAO PASS  
+    saoPass = new SAOPass(scene, camera);
     saoPass.params.saoBias = 0.5;
     saoPass.params.saoIntensity = 0.0007;
     saoPass.params.saoScale = 1;
     saoPass.params.saoKernelRadius = 60;
     composer.addPass(saoPass);
+
+    // OUTLINE PASS
+    outlinePass = new OutlinePass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        scene,
+        camera
+    );
+    outlinePass.edgeStrength = 3.0;
+    outlinePass.edgeGlow = 0.5;
+    outlinePass.edgeThickness = 2.0;
+    outlinePass.pulsePeriod = 2;
+    outlinePass.visibleEdgeColor.set('#ffffff');
+    outlinePass.hiddenEdgeColor.set('#190a05');
+    composer.addPass(outlinePass);
+
+    // GAMMA CORRECTION
+    const gammaPass = new ShaderPass(GammaCorrectionShader);
+    composer.addPass(gammaPass);
+
+    // FINAL COPY PASS
     const copyPass = new ShaderPass(CopyShader);
     copyPass.renderToScreen = true;
     composer.addPass(copyPass);
@@ -111,10 +142,12 @@ async function init() {
 
     controls.addEventListener("lock", () => {
         document.getElementById("blocker").style.display = "none";
+        document.getElementById("crosshair").classList.add("active");
     });
 
     controls.addEventListener("unlock", () => {
         document.getElementById("blocker").style.display = "block";
+        document.getElementById("crosshair").classList.remove("active");
     });
 
 
@@ -229,25 +262,63 @@ async function loadApartment() {
 // LOAD LIGHT SWITCH
 // -----------------------------------------------------------------------------
 async function loadLightSwitch() {
-
     return new Promise((resolve, reject) => {
-
+        // Load the model once
         gltfLoader.load('/models/Light Switch.glb', gltf => {
-
-            const model = gltf.scene;
-            scene.add(model);
-
-            model.position.set(-0.3, 2, -5.68);
-            model.scale.set(3, 3, 3);
-
-            model.deviceConfig = {
-                type: "lightSwitch",
-                isOn: false,
-                linkedLight: [ceilingLampLight1, ceilingLampLight2, ceilingLampLight3],
-                intensity: 1.8
-            };
-
-            smartDevices.push(model);
+            const originalModel = gltf.scene;
+            
+            // Define all switch configurations
+            const switchConfigs = [
+                {
+                    position: [-0.3, 2, -5.68],
+                    rotation: [0, 0, 0],
+                    scale: [3, 3, 3],
+                    linkedLight: [ceilingLampLight1, ceilingLampLight2, ceilingLampLight3],
+                    intensity: 1.8
+                },
+                {
+                    position: [-3.35, 2, -1.975],
+                    rotation: [0, Math.PI / 2, 0],
+                    scale: [3, 3, 3],
+                    linkedLight: [ceilingLampLight6],
+                    intensity: 1.8
+                },
+                {
+                    position: [0.63, 2, -0.575],
+                    rotation: [0, Math.PI, 0],
+                    scale: [3, 3, 3],
+                    linkedLight: [ceilingLampLight4],
+                    intensity: 2.0
+                },
+                {
+                    position: [-3.7, 2, -0.247],
+                    rotation: [0, 0, 0],
+                    scale: [3, 3, 3],
+                    linkedLight: [ceilingLampLight5],
+                    intensity: 1.5
+                }
+            ];
+            
+            // Create switches from configs
+            switchConfigs.forEach((config, index) => {
+                // Clone the model (first one uses original, rest are clones)
+                const model = index === 0 ? originalModel : originalModel.clone();
+                
+                scene.add(model);
+                model.position.set(...config.position);
+                model.rotation.set(...config.rotation);
+                model.scale.set(...config.scale);
+                
+                model.deviceConfig = {
+                    type: "lightSwitch",
+                    isOn: false,
+                    linkedLight: config.linkedLight,
+                    intensity: config.intensity
+                };
+                
+                smartDevices.push(model);
+            });
+            
             resolve();
         }, undefined, reject);
     });
@@ -404,6 +475,37 @@ function updatePlayer(deltaTime) {
     camera.position.copy(playerCollider.end);
 }
 
+// -----------------------------------------------------------------------------
+// SMART DEVICE OUTLINE HIGHLIGHTING
+// -----------------------------------------------------------------------------
+function checkSmartDeviceHover() {
+    const raycaster = new THREE.Raycaster();
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    raycaster.set(camera.position, dir);
+
+    const hits = raycaster.intersectObjects(scene.children, true);
+
+    // Clear outline by default
+    outlinePass.selectedObjects = [];
+
+    if (hits.length === 0) return;
+
+    // Check if we hit a smart device
+    for (const hit of hits) {
+        let obj = hit.object;
+
+        while (obj) {
+            if (smartDevices.includes(obj)) {
+                // Highlight this device
+                outlinePass.selectedObjects = [obj];
+                return;
+            }
+            obj = obj.parent;
+        }
+    }
+}
+
+
 
 // Capsule collision with octree
 function playerCollisions() {
@@ -432,12 +534,12 @@ function playerCollisions() {
 // MAIN LOOP
 // -----------------------------------------------------------------------------
 function animate() {
-
     if (controls.isLocked) {
         const delta = 0.016; // ~60fps
         updatePlayer(delta);
     }
 
+    checkSmartDeviceHover()
     updateDebugHUD();
     composer.render();
 }
@@ -447,10 +549,18 @@ function animate() {
 // RESIZE
 // -----------------------------------------------------------------------------
 function onWindowResize() {
-
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+
+    if (saoPass) {
+        saoPass.setSize(window.innerWidth, window.innerHeight);
+    }
+    
+    if (outlinePass) {
+        outlinePass.setSize(window.innerWidth, window.innerHeight);
+    }
 }
 
 

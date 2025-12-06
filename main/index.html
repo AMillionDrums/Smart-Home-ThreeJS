@@ -22,7 +22,7 @@
     </div>
     <canvas id="bg"></canvas>
     <script type="module" src="/src/main.js"></script>
-
+    <div id="crosshair"></div>
     <div id="debug-hud" style="
     position: fixed;
     top: 10px;
@@ -37,10 +37,16 @@
     border: 1px solid #333;
     min-width: 250px;
     backdrop-filter: blur(3px);
-">
-    <div style="margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #444;">
+    ">
+
+    <div style="
+    margin-bottom: 5px; 
+    font-weight: bold; 
+    border-bottom: 1px solid #444;
+    ">
         DEBUG INFO [F1]
     </div>
+
     <div>Position: <span id="cam-pos">0.00, 0.00, 0.00</span></div>
     <div>Rotation: <span id="cam-rot">0.0°, 0.0°</span></div>
     <div>Velocity: <span id="player-vel">0.00, 0.00, 0.00</span></div>
