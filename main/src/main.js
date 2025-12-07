@@ -32,13 +32,18 @@ let ceilingLampLight1 = null;
 let ceilingLampLight2 = null;
 let ceilingLampLight3 = null;
 // Living room ceiling lamps
-let ceilingLampLight4 = null;
+let livingLampLight1 = null;
+let livingLampLight2 = null;
+let livingLampLight3 = null;
+let livingLampLight4 = null;
 // Bedroom ceiling lamps
-let ceilingLampLight5 = null;
+let bedroomLampLight = null;
 // Bathroom ceiling lamps
-let ceilingLampLight6 = null;
+let bathroomLampLight = null;
 
 let ceilingLampHelper = null;
+
+let capsuleHelper = null;
 
 // Movement states
 const keyStates = {};
@@ -50,9 +55,9 @@ let playerOnFloor = false;
 
 // Player capsule collider (spawn point)
 const playerCollider = new Capsule(
-    new THREE.Vector3(-2, 0.2, -4.5), // bottom
-    new THREE.Vector3(-2, 2.8, -4.5),       // top (camera height)
-    0.35                                    // radius
+    new THREE.Vector3(-2, 0.2, -4.5),
+    new THREE.Vector3(-2, 2.8, -4.5),
+    0.35,
 );
 
 // Post-processing
@@ -132,6 +137,7 @@ async function init() {
     copyPass.renderToScreen = true;
     composer.addPass(copyPass);
 
+    // capsuleHelper = createCapsuleHelper();
 
     // CONTROLS
     controls = new PointerLockControls(camera, document.body);
@@ -205,6 +211,7 @@ async function loadApartment() {
 
             // Build collision octree
             worldOctree.fromGraphNode(root);
+            const collisionGeometry = new THREE.Group();
 
             // Shadows
             root.traverse(obj => {
@@ -226,11 +233,11 @@ async function loadApartment() {
             });
 
             // Ceiling lamps (light off by default)
-            ceilingLampLight1 = new THREE.PointLight(0xfff1c3, 20, 0, 2);
+            // Entrance/kitchen ceiling lamps
+            ceilingLampLight1 = new THREE.PointLight(0xfff1c3, 1.8, 0, 2);
             ceilingLampLight1.position.set(-1.23, 4.4, -2.955);
             ceilingLampLight1.castShadow = true;
             ceilingLampLight1.visible = false;
-
             ceilingLampLight1.shadow.camera.near = 0.1;
             ceilingLampLight1.shadow.camera.far = 10;
             ceilingLampLight1.shadow.bias = 0.0001;
@@ -243,12 +250,36 @@ async function loadApartment() {
             ceilingLampLight3 = ceilingLampLight1.clone();
             ceilingLampLight3.position.set(4.77, 4.4, -2.955);
 
+            // Living room ceiling lamps
+            livingLampLight1 = ceilingLampLight1.clone();
+            livingLampLight1.position.set(3.6, 3.67, 2.86);
+            livingLampLight2 = ceilingLampLight1.clone();
+            livingLampLight2.position.set(3.3, 3.8, 2.58);
+            livingLampLight3 = ceilingLampLight1.clone();
+            livingLampLight3.position.set(3.6, 4, 2.28);
+            livingLampLight4 = ceilingLampLight1.clone();
+            livingLampLight4.position.set(3.88, 4.2, 2.58);
+
+            // Bedroom ceiling lamp
+            bedroomLampLight = ceilingLampLight1.clone();
+            bedroomLampLight.position.set(-4.36, 4.4, 2.59);
+
+            // Bathroom ceiling lamp
+            bathroomLampLight = ceilingLampLight1.clone();
+            bathroomLampLight.position.set(-5.56, 4.4, -3.12);
+
             scene.add(ceilingLampLight1);
             scene.add(ceilingLampLight2);
             scene.add(ceilingLampLight3);
+            scene.add(livingLampLight1);
+            scene.add(livingLampLight2);
+            scene.add(livingLampLight3);
+            scene.add(livingLampLight4);
+            scene.add(bedroomLampLight);
+            scene.add(bathroomLampLight);
 
             // Debug helper (keep but hidden)
-            ceilingLampHelper = new THREE.PointLightHelper(ceilingLampLight1, 0.15);
+            ceilingLampHelper = new THREE.PointLightHelper(bathroomLampLight, 0.15);
             ceilingLampHelper.visible = false;
             scene.add(ceilingLampHelper);
 
@@ -269,32 +300,32 @@ async function loadLightSwitch() {
             
             // Define all switch configurations
             const switchConfigs = [
-                {
+                {   // Entrance/kitchen ceiling lamps
                     position: [-0.3, 2, -5.68],
                     rotation: [0, 0, 0],
                     scale: [3, 3, 3],
                     linkedLight: [ceilingLampLight1, ceilingLampLight2, ceilingLampLight3],
                     intensity: 1.8
                 },
-                {
+                {   // Bathroom ceiling lamps
                     position: [-3.35, 2, -1.975],
                     rotation: [0, Math.PI / 2, 0],
                     scale: [3, 3, 3],
-                    linkedLight: [ceilingLampLight6],
+                    linkedLight: [bathroomLampLight],
                     intensity: 1.8
                 },
-                {
+                {   // Living room ceiling lamps
                     position: [0.63, 2, -0.575],
                     rotation: [0, Math.PI, 0],
                     scale: [3, 3, 3],
-                    linkedLight: [ceilingLampLight4],
+                    linkedLight: [livingLampLight1, livingLampLight2, livingLampLight3, livingLampLight4],
                     intensity: 2.0
                 },
-                {
+                {   // Bedroom ceiling lamps
                     position: [-3.7, 2, -0.247],
                     rotation: [0, 0, 0],
                     scale: [3, 3, 3],
-                    linkedLight: [ceilingLampLight5],
+                    linkedLight: [bedroomLampLight],
                     intensity: 1.5
                 }
             ];
@@ -349,7 +380,6 @@ function loadHDR() {
             directionalLight.position.set(20, 2.8, 17);
             directionalLight.target.position.set(4.2, 0, 5.74);
             directionalLight.castShadow = true;
-
             directionalLight.shadow.camera.near = 0.1;
             directionalLight.shadow.camera.far = 50;
             directionalLight.shadow.camera.left = -20;
@@ -533,10 +563,20 @@ function playerCollisions() {
 // -----------------------------------------------------------------------------
 // MAIN LOOP
 // -----------------------------------------------------------------------------
-function animate() {
-    if (controls.isLocked) {
-        const delta = 0.016; // ~60fps
+function animate(time) {
+    if (!lastTime) lastTime = time;
+    const delta = (time - lastTime) * 0.001; // Convert to seconds
+    lastTime = time;
+    
+    if (controls.isLocked && delta < 0.1) {
         updatePlayer(delta);
+
+        if (capsuleHelper) {
+        const capsuleCenter = new THREE.Vector3()
+            .addVectors(playerCollider.start, playerCollider.end)
+            .multiplyScalar(0.5);
+        capsuleHelper.position.copy(capsuleCenter);
+    }
     }
 
     checkSmartDeviceHover()
@@ -604,4 +644,42 @@ function updateDebugHUD() {
     // Player on floor state
     document.getElementById('player-floor').textContent = 
         playerOnFloor ? 'YES' : 'NO';
+}
+
+// -----------------------------------------------------------------------------
+// CAPSULE VISUALIZATION (DEBUG)
+// -----------------------------------------------------------------------------
+function createCapsuleHelper() {
+    const group = new THREE.Group();
+    
+    const capsuleHeight = playerCollider.end.y - playerCollider.start.y;
+    const radius = playerCollider.radius;
+    
+    // Cylinder body
+    const cylinderGeometry = new THREE.CylinderGeometry(
+        radius, 
+        radius, 
+        capsuleHeight, 
+        16
+    );
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ff00,
+        wireframe: true
+    });
+    const cylinder = new THREE.Mesh(cylinderGeometry, wireframeMaterial);
+    group.add(cylinder);
+    
+    // Top sphere
+    const sphereGeometry = new THREE.SphereGeometry(radius, 16, 16);
+    const topSphere = new THREE.Mesh(sphereGeometry, wireframeMaterial);
+    topSphere.position.y = capsuleHeight / 2;
+    group.add(topSphere);
+    
+    // Bottom sphere
+    const bottomSphere = new THREE.Mesh(sphereGeometry, wireframeMaterial);
+    bottomSphere.position.y = -capsuleHeight / 2;
+    group.add(bottomSphere);
+    
+    scene.add(group);
+    return group;
 }
