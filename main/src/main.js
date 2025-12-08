@@ -27,6 +27,11 @@ let camera, scene, renderer, controls;
 const gltfLoader = new GLTFLoader();
 const smartDevices = [];
 
+// hovered devices
+let hoveredDevice = null;
+let floatingScreen = null;
+
+
 // Entrance/kitchen ceiling lamps
 let ceilingLampLight1 = null;
 let ceilingLampLight2 = null;
@@ -188,6 +193,16 @@ async function init() {
         if (e.code === "KeyE") {
             handleInteraction();
         }
+
+        // to show smart device info
+        if (e.code === "KeyQ") {
+        openDeviceInfo();
+        }
+
+        // to show all smart devices
+        if (e.code === "KeyM") {
+            openSmartDeviceList();
+        }
     });
     document.addEventListener("keyup", e => keyStates[e.code] = false);
 
@@ -216,6 +231,10 @@ async function loadApartment() {
             // Shadows
             root.traverse(obj => {
                 if (obj.isMesh) {
+
+                    // DEBUG: print all mesh names
+                    //console.log("MESH NAME:", obj.name)
+
                     obj.castShadow = true;
                     obj.receiveShadow = true;
                     // Handle transparent materials
@@ -229,8 +248,46 @@ async function loadApartment() {
                             obj.castShadow = false;
                         }
                     }
+
+                    if (obj.name === "televisionModern_2_1") {
+                        console.log("TV SCREEN FOUND:", obj);
+
+                        // Compute bounding box
+                        const box = new THREE.Box3().setFromObject(obj);
+                        const size = new THREE.Vector3();
+                        const center = new THREE.Vector3();
+                        box.getSize(size);
+                        box.getCenter(center);
+
+                        console.log("TV SCREEN SIZE:", size);
+                        console.log("TV SCREEN CENTER:", center);
+
+                        // Also get world position (accurate)
+                        const worldPos = new THREE.Vector3();
+                        obj.getWorldPosition(worldPos);
+                        console.log("TV SCREEN WORLD POSITION:", worldPos);
+
+                        const worldQuat = new THREE.Quaternion();
+                        obj.getWorldQuaternion(worldQuat);
+                        console.log("TV SCREEN WORLD ROTATION (QUAT):", worldQuat);
+
+                        // Save it so we can use it later
+                        window.tvScreenOriginal = {
+                            mesh: obj,
+                            size: size,
+                            center: center,
+                            worldPos: worldPos,
+                            worldQuat: worldQuat
+                        };
+                    }
+
+
                 }
             });
+
+            // Call the function when the GLB finishes loading
+            createFloatingScreen();
+
 
             // Ceiling lamps (light off by default)
             // Entrance/kitchen ceiling lamps
@@ -365,7 +422,7 @@ function loadHDR() {
 
     const hdrLoader = new HDRLoader();
     hdrLoader.load(
-        './skybox/kloppenheim_02_1k.hdr',
+        './skybox/meadow_2_4k.hdr',
         function (texture) { 
             const envMap = pmremGenerator.fromEquirectangular(texture).texture;
             scene.background = envMap;
@@ -376,7 +433,7 @@ function loadHDR() {
             const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x000000, 0.1);
             scene.add(hemisphereLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            const directionalLight = new THREE.DirectionalLight(0xF4E99B, 1);
             directionalLight.position.set(20, 2.8, 17);
             directionalLight.target.position.set(4.2, 0, 5.74);
             directionalLight.castShadow = true;
@@ -421,7 +478,7 @@ function handleInteraction() {
 
         while (obj) {
             if (smartDevices.includes(obj)) {
-                toggleLightSwitch(obj);
+                toggleDevice(obj);
                 return;
             }
             obj = obj.parent;
@@ -431,27 +488,33 @@ function handleInteraction() {
 
 
 // Toggle lights connected to the light switch
-function toggleLightSwitch(model) {
+function toggleDevice(model) {
 
-    model.deviceConfig.isOn = !model.deviceConfig.isOn;
-    const isOn = model.deviceConfig.isOn;
+    if (model.deviceConfig.type === "lightSwitch") {
+        model.deviceConfig.isOn = !model.deviceConfig.isOn;
+        const isOn = model.deviceConfig.isOn;
 
-    // Rotate switch
-    model.rotation.z += Math.PI;
+        // Rotate switch
+        model.rotation.z += Math.PI;
 
-    // If linkedLight is an array
-    if (model.deviceConfig.linkedLight && Array.isArray(model.deviceConfig.linkedLight)) {
-        model.deviceConfig.linkedLight.forEach(light => {
-            if (light) {
-                light.visible = isOn;
-                light.intensity = isOn ? model.deviceConfig.intensity : 0;
-            }
-        });
-    } 
-    // If linkedLight is a single light (backward compatibility)
-    else if (model.deviceConfig.linkedLight) {
-        model.deviceConfig.linkedLight.visible = isOn;
-        model.deviceConfig.linkedLight.intensity = isOn ? model.deviceConfig.intensity : 0;
+        // If linkedLight is an array
+        if (model.deviceConfig.linkedLight && Array.isArray(model.deviceConfig.linkedLight)) {
+            model.deviceConfig.linkedLight.forEach(light => {
+                if (light) {
+                    light.visible = isOn;
+                    light.intensity = isOn ? model.deviceConfig.intensity : 0;
+                }
+            });
+        } 
+        // If linkedLight is a single light (backward compatibility)
+        else if (model.deviceConfig.linkedLight) {
+            model.deviceConfig.linkedLight.visible = isOn;
+            model.deviceConfig.linkedLight.intensity = isOn ? model.deviceConfig.intensity : 0;
+        }
+    }
+
+    if (model.deviceConfig.type === "tv") {
+        toggleTV(model);
     }
 }
 
@@ -518,6 +581,8 @@ function checkSmartDeviceHover() {
     // Clear outline by default
     outlinePass.selectedObjects = [];
 
+    hoveredDevice = null;
+
     if (hits.length === 0) return;
 
     // Check if we hit a smart device
@@ -528,6 +593,7 @@ function checkSmartDeviceHover() {
             if (smartDevices.includes(obj)) {
                 // Highlight this device
                 outlinePass.selectedObjects = [obj];
+                hoveredDevice = obj; // <-- store reference
                 return;
             }
             obj = obj.parent;
@@ -682,4 +748,239 @@ function createCapsuleHelper() {
     
     scene.add(group);
     return group;
+}
+
+
+// -----------------------------------------------------------------------------
+// Showing Device Info
+// -----------------------------------------------------------------------------
+function openDeviceInfo() {
+    if (!hoveredDevice) return;
+
+    controls.unlock();
+
+    const infoBox = document.getElementById("device-info");
+
+    const config = hoveredDevice.deviceConfig;
+    const status = config.isOn ? "ON" : "OFF";
+
+    // SAFE values
+    const lights = config.linkedLight ? config.linkedLight.length : 0;
+    const intensity = config.intensity !== undefined ? config.intensity : "N/A";
+
+    let extraInfo = "";
+
+    // CUSTOM INFO BASED ON DEVICE TYPE ----------------------
+    if (config.type === "tv") {
+        extraInfo = `
+            <p><strong>Video:</strong> ${status === "ON" ? "Playing" : "Off"}</p>
+        `;
+    }
+
+    if (config.type === "lightSwitch") {
+        extraInfo = `
+            <p><strong>Lights connected:</strong> ${lights}</p>
+            <p><strong>Light intensity:</strong> ${intensity}</p>
+        `;
+    }
+
+    // BUILD HTML --------------------------------------------
+    infoBox.innerHTML = `
+        <h3>Smart Device</h3>
+        <p><strong>Type:</strong> ${config.type}</p>
+        <p><strong>Status:</strong> ${status}</p>
+
+        ${extraInfo}
+
+        <button id="toggle-device-info">
+            Turn ${config.isOn ? "Off" : "On"}
+        </button>
+
+        <br><br>
+        <button id="close-info">Close</button>
+    `;
+
+    infoBox.style.display = "block";
+
+    // ON/OFF BUTTON HANDLER -------------------------------
+    document.getElementById("toggle-device-info").onclick = () => {
+        toggleDevice(hoveredDevice);   // your existing logic
+        openDeviceInfo();              // refresh UI after toggle
+    };
+
+    // CLOSE BUTTON ----------------------------------------
+    document.getElementById("close-info").onclick = () => {
+        infoBox.style.display = "none";
+        controls.lock();
+    };
+}
+
+
+
+// -----------------------------------------------------------------------------
+// Smart Device list
+// -----------------------------------------------------------------------------
+function openSmartDeviceList() {
+    controls.unlock();
+
+    const listBox = document.getElementById("device-list");
+
+    // Group devices by type
+    const groups = {};
+    smartDevices.forEach(dev => {
+        const type = dev.deviceConfig.type;
+        if (!groups[type]) groups[type] = [];
+        groups[type].push(dev);
+    });
+
+    let html = `
+        <h2>Smart Devices</h2>
+        <p>Total devices: ${smartDevices.length}</p>
+    `;
+
+    Object.keys(groups).forEach(type => {
+        const devices = groups[type];
+        const count = devices.length;
+
+        html += `
+            <div style="margin-bottom:12px; background:rgba(255,255,255,0.1); padding:10px; border-radius:8px;">
+                <div onclick="toggleGroup('${type}')"
+                     style="cursor:pointer; font-size:18px; font-weight:bold;">
+                    ${type} (${count})
+                </div>
+
+                <ul id="group-${type}" style="display:none; list-style:none; padding-left:10px; margin-top:10px;">
+        `;
+
+        devices.forEach((dev, i) => {
+            const cfg = dev.deviceConfig;
+            const status = cfg.isOn ? "ON" : "OFF";
+
+            // Safe fields
+            const lights = cfg.linkedLight ? cfg.linkedLight.length : 0;
+            const intensity = cfg.intensity !== undefined ? cfg.intensity : "N/A";
+
+            let extra = "";
+            if (type === "lightSwitch") {
+                extra = `Lights: ${lights}<br>Intensity: ${intensity}`;
+            } else if (type === "tv") {
+                extra = `Video: ${status === "ON" ? "Playing" : "Off"}`;
+            }
+
+            // === BUTTON TO TOGGLE DEVICE ===
+            html += `
+                <li style="margin-bottom:8px; background:rgba(255,255,255,0.15); padding:8px; border-radius:6px;">
+                    <strong>Device ${i + 1}</strong><br>
+                    Status: ${status}<br>
+                    ${extra}<br><br>
+                    <button onclick="toggleDeviceFromMenu(${smartDevices.indexOf(dev)})">
+                        Turn ${cfg.isOn ? "Off" : "On"}
+                    </button>
+                </li>
+            `;
+        });
+
+        html += `
+                </ul>
+            </div>
+        `;
+    });
+
+    html += `<button id="close-device-list">Close</button>`;
+
+    listBox.innerHTML = html;
+    listBox.style.display = "block";
+
+    document.getElementById("close-device-list").onclick = () => {
+        listBox.style.display = "none";
+        controls.lock();
+    };
+
+    // Expand/collapse group inline helper
+    window.toggleGroup = function(type) {
+        const el = document.getElementById("group-" + type);
+        el.style.display = el.style.display === "none" ? "block" : "none";
+    };
+}
+// Helper Method
+window.toggleDeviceFromMenu = function(index) {
+    const device = smartDevices[index];
+    if (!device) return;
+
+    toggleDevice(device);   // reuse your existing toggle logic
+    openSmartDeviceList();  // refresh UI to update status & button label
+};
+
+
+
+// -----------------------------------------------------------------------------
+// Toggle TV
+// -----------------------------------------------------------------------------
+function toggleTV(screen) {
+
+    const video = document.getElementById("tv-video");
+
+    screen.deviceConfig.isOn = !screen.deviceConfig.isOn;
+
+    if (screen.deviceConfig.isOn) {
+
+        video.currentTime = 0;
+        video.play();
+
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.colorSpace = THREE.SRGBColorSpace;
+
+        screen.material = new THREE.MeshBasicMaterial({
+            map: videoTexture,
+            side: THREE.DoubleSide,
+            toneMapped: false
+        });
+
+    } else {
+        video.pause();
+
+        screen.material = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            side: THREE.DoubleSide,
+            toneMapped: false
+        });
+    }
+}
+
+// -----------------------------------------------------
+// CREATE FLOATING VIDEO SCREEN IN THE MIDDLE OF ROOM
+// -----------------------------------------------------
+function createFloatingScreen() {
+
+    const size = { width: 2.532, height: 1.4001 };
+
+    const geometry = new THREE.PlaneGeometry(size.width, size.height);
+
+    const material = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        side: THREE.DoubleSide,
+        toneMapped: false
+    });
+
+    floatingScreen = new THREE.Mesh(geometry, material);
+    floatingScreen.name = "FloatingScreen";
+
+    // Center of the real TV screen (from your logs)
+    floatingScreen.position.set(
+        6.804,  // x
+        2.5,  // y
+        2.813   // z
+    );
+
+    // Correct rotation: TV faces -X direction
+    floatingScreen.rotation.set(0, Math.PI / 2, 0);
+
+    // Move slightly forward to not clip into the model
+    floatingScreen.position.x -= 0.03;   // push toward camera
+                                          // adjust if needed
+
+    floatingScreen.deviceConfig = { type: "tv", isOn: false };
+    smartDevices.push(floatingScreen);
+
+    scene.add(floatingScreen);
 }
