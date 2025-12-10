@@ -4,11 +4,97 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>main</title>
+    <title>3D Game with Pointer Lock</title>
+    <link rel="stylesheet" href="./main/src/style.css">
   </head>
   <body>
+    <div id="blocker">
+      <div id="instructions">
+        <p style="font-size:36px">
+          Click to play
+        </p>
+        <p>
+          Move: WASD<br/>
+          Interact: E<br/>
+          Look: MOUSE<br/>
+          Devices list: M<br/>
+          Device Info: Q
+        </p>
+      </div>
+    </div>
     <canvas id="bg"></canvas>
-    <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
+    <div id="crosshair"></div>
+    <div id="debug-hud" style="
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #0f0;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 1000;
+    border: 1px solid #333;
+    min-width: 250px;
+    backdrop-filter: blur(3px);
+    ">
+
+    <div style="
+    margin-bottom: 5px; 
+    font-weight: bold; 
+    border-bottom: 1px solid #444;
+    ">
+        DEBUG INFO [F1]
+    </div>
+
+    <div>Position: <span id="cam-pos">0.00, 0.00, 0.00</span></div>
+    <div>Rotation: <span id="cam-rot">0.0°, 0.0°</span></div>
+    <div>Velocity: <span id="player-vel">0.00, 0.00, 0.00</span></div>
+    <div>On Floor: <span id="player-floor">NO</span></div>
+    <div>FPS: <span id="fps">60</span></div>
+  </div>
+
+<!-- DEVICE INFO PANEL (for Key Q interaction) -->
+  <div id="device-info"
+      style="
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          padding: 20px;
+          width: 300px;
+          background: rgba(0,0,0,0.75);
+          backdrop-filter: blur(8px);
+          color: white;
+          border-radius: 10px;
+          display: none;
+          font-family: sans-serif;
+          z-index: 2000;
+      ">
+  </div>
+
+  <!-- SMART DEVICES MENU -->
+  <div id="device-list"
+     style="
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 20px;
+        width: 400px;
+        max-height: 400px;
+        overflow-y: auto;
+        background: rgba(0,0,0,0.55);
+        backdrop-filter: blur(8px);
+        color: white;
+        border-radius: 12px;
+        display: none;
+        font-family: sans-serif;
+        z-index: 2000;
+     ">
+  </div>
+  <video id="tv-video" src="videos/tv.mp4" playsinline loop style="display:none"></video>
   </body>
 </html>
