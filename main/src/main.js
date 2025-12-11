@@ -29,6 +29,7 @@ const smartDevices = [];
 
 // hovered devices
 let hoveredDevice = null;
+
 let floatingScreen = null;
 
 
@@ -69,6 +70,17 @@ const playerCollider = new Capsule(
 let composer;
 let saoPass;
 let outlinePass;
+
+// -----------------------------------------
+// HOME SESSION TRACKING
+// -----------------------------------------
+const activityLog = {
+    sessions: [],     // { enter: Date, exit: Date, durationMs: number }
+    currentSessionStart: null,
+    lights: [],
+    tv: []
+};
+
 
 
 // -----------------------------------------------------------------------------
@@ -154,12 +166,31 @@ async function init() {
     controls.addEventListener("lock", () => {
         document.getElementById("blocker").style.display = "none";
         document.getElementById("crosshair").classList.add("active");
+
+        // Start a new session
+        activityLog.currentSessionStart = new Date();
     });
 
     controls.addEventListener("unlock", () => {
         document.getElementById("blocker").style.display = "block";
         document.getElementById("crosshair").classList.remove("active");
+
+        // END SESSION
+        if (activityLog.currentSessionStart) {
+            const exit = new Date();
+            const enter = activityLog.currentSessionStart;
+            const durationMs = exit - enter;
+
+            activityLog.sessions.push({
+                enter,
+                exit,
+                durationMs
+            });
+
+            activityLog.currentSessionStart = null;
+        }
     });
+
 
 
     // --------------------------
@@ -203,8 +234,23 @@ async function init() {
         if (e.code === "KeyM") {
             openSmartDeviceList();
         }
+        
+        // activity report
+        if (e.code === "KeyR") {
+            showSimpleReport();
+        }
+
+        // credits
+        if (e.code === "KeyC") {
+            openCreditsMenu();
+        }
     });
     document.addEventListener("keyup", e => keyStates[e.code] = false);
+
+    document.getElementById("close-credits").addEventListener("click", () => {
+    document.getElementById("credits").style.display = "none";
+    if (controls) controls.lock();
+});
 
     window.addEventListener("resize", onWindowResize);
 
@@ -357,36 +403,45 @@ async function loadLightSwitch() {
             
             // Define all switch configurations
             const switchConfigs = [
-                {   // Entrance/kitchen ceiling lamps
-                    position: [-0.3, 2, -5.68],
-                    rotation: [0, 0, 0],
-                    scale: [3, 3, 3],
-                    linkedLight: [ceilingLampLight1, ceilingLampLight2, ceilingLampLight3],
-                    intensity: 1.8
-                },
-                {   // Bathroom ceiling lamps
-                    position: [-3.35, 2, -1.975],
-                    rotation: [0, Math.PI / 2, 0],
-                    scale: [3, 3, 3],
-                    linkedLight: [bathroomLampLight],
-                    intensity: 1.8
-                },
-                {   // Living room ceiling lamps
-                    position: [0.63, 2, -0.575],
-                    rotation: [0, Math.PI, 0],
-                    scale: [3, 3, 3],
-                    linkedLight: [livingLampLight1, livingLampLight2, livingLampLight3, livingLampLight4],
-                    intensity: 2.0
-                },
-                {   // Bedroom ceiling lamps
-                    position: [-3.7, 2, -0.247],
-                    rotation: [0, 0, 0],
-                    scale: [3, 3, 3],
-                    linkedLight: [bedroomLampLight],
-                    intensity: 1.5
-                }
+            {
+                name: "Kitchen Light",
+                position: [-0.3, 2, -5.68],
+                rotation: [0, 0, 0],
+                scale: [3, 3, 3],
+                linkedLight: [ceilingLampLight1, ceilingLampLight2, ceilingLampLight3],
+                intensity: 1.8
+            },
+            {
+                name: "Bathroom Light",
+                position: [-3.35, 2, -1.975],
+                rotation: [0, Math.PI / 2, 0],
+                scale: [3, 3, 3],
+                linkedLight: [bathroomLampLight],
+                intensity: 1.8
+            },
+            {
+                name: "Living Room Light",
+                position: [0.63, 2, -0.575],
+                rotation: [0, Math.PI, 0],
+                scale: [3, 3, 3],
+                linkedLight: [
+                    livingLampLight1,
+                    livingLampLight2,
+                    livingLampLight3,
+                    livingLampLight4
+                ],
+                intensity: 2.0
+            },
+            {
+                name: "Bedroom Light",
+                position: [-3.7, 2, -0.247],
+                rotation: [0, 0, 0],
+                scale: [3, 3, 3],
+                linkedLight: [bedroomLampLight],
+                intensity: 1.5
+            }
             ];
-            
+
             // Create switches from configs
             switchConfigs.forEach((config, index) => {
                 // Clone the model (first one uses original, rest are clones)
@@ -404,6 +459,16 @@ async function loadLightSwitch() {
                     intensity: config.intensity
                 };
                 
+                model.name = config.name; // give the object a name
+
+                model.deviceConfig = {
+                    type: "lightSwitch",
+                    isOn: false,
+                    name: config.name,          // store readable name
+                    linkedLight: config.linkedLight,
+                    intensity: config.intensity
+                };
+
                 smartDevices.push(model);
             });
             
@@ -433,7 +498,7 @@ function loadHDR() {
             const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x000000, 0.1);
             scene.add(hemisphereLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xF4E99B, 1);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3);
             directionalLight.position.set(20, 2.8, 17);
             directionalLight.target.position.set(4.2, 0, 5.74);
             directionalLight.castShadow = true;
@@ -492,6 +557,11 @@ function toggleDevice(model) {
 
     if (model.deviceConfig.type === "lightSwitch") {
         model.deviceConfig.isOn = !model.deviceConfig.isOn;
+        activityLog.lights.push({
+            deviceName: model.name || "Light Switch",
+            action: model.deviceConfig.isOn ? "ON" : "OFF",
+            time: new Date()
+        });
         const isOn = model.deviceConfig.isOn;
 
         // Rotate switch
@@ -673,7 +743,7 @@ function onWindowResize() {
 // -----------------------------------------------------------------------------
 // DEBUG HUD
 // -----------------------------------------------------------------------------
-let debugHudEnabled = true;
+let debugHudEnabled = false;
 let frameCount = 0;
 let lastTime = performance.now();
 let fps = 60;
@@ -917,6 +987,12 @@ window.toggleDeviceFromMenu = function(index) {
 // Toggle TV
 // -----------------------------------------------------------------------------
 function toggleTV(screen) {
+    
+    // Log TV actions
+    activityLog.tv.push({
+        action: !screen.deviceConfig.isOn ? "ON" : "OFF",
+        time: new Date()
+    });
 
     const video = document.getElementById("tv-video");
 
@@ -984,3 +1060,169 @@ function createFloatingScreen() {
 
     scene.add(floatingScreen);
 }
+
+// -----------------------------------------------------
+// Report for Activity
+// -----------------------------------------------------
+function showSimpleReport() {
+    const panel = document.getElementById("report-panel");
+
+    let html = `<h2>SMART HOME REPORT</h2><hr><br>`;
+
+    // --------------------------
+    // HOME SESSIONS (ACCORDION)
+    html += `
+    <div class="accordion-section">
+        <div class="accordion-header" onclick="toggleAccordion('sessions')">
+            ▶ Home Sessions
+        </div>
+        <div class="accordion-content" id="accordion-sessions">
+    `;
+
+    if (activityLog.sessions.length === 0) {
+        html += `<p>No completed sessions.</p>`;
+    } else {
+        activityLog.sessions.forEach((s, i) => {
+            const mins = Math.floor(s.durationMs / 60000);
+            const secs = Math.floor((s.durationMs % 60000) / 1000);
+
+            html += `
+                <p><strong>Session ${i + 1}</strong><br>
+                Entered: ${s.enter.toLocaleTimeString()}<br>
+                Left: ${s.exit.toLocaleTimeString()}<br>
+                Duration: ${mins}m ${secs}s</p>
+            `;
+        });
+    }
+
+    // Active session (if inside home)
+    if (activityLog.currentSessionStart) {
+        const now = new Date();
+        const duration = now - activityLog.currentSessionStart;
+        const mins = Math.floor(duration / 60000);
+        const secs = Math.floor((duration % 60000) / 1000);
+
+        html += `
+            <p><strong>Active Session</strong><br>
+            Entered: ${activityLog.currentSessionStart.toLocaleTimeString()}<br>
+            Duration so far: ${mins}m ${secs}s</p>
+        `;
+    }
+
+    html += `</div></div>`;
+
+
+    // --------------------------
+    // LIGHT EVENTS
+    // --------------------------
+    html += `
+    <div class="accordion-section">
+        <div class="accordion-header" onclick="toggleAccordion('lights')">
+            ▶ Light Events
+        </div>
+        <div class="accordion-content" id="accordion-lights">
+    `;
+
+    if (activityLog.lights.length === 0) {
+        html += `<p>No light activity recorded.</p>`;
+    } else {
+        activityLog.lights.forEach(e => {
+            html += `
+                <p>${e.deviceName} — <strong>${e.action}</strong> at 
+                ${e.time.toLocaleTimeString()}</p>
+            `;
+        });
+    }
+
+    html += `</div></div>`;
+
+
+    // --------------------------
+    // TV EVENTS
+    // --------------------------
+    html += `
+    <div class="accordion-section">
+        <div class="accordion-header" onclick="toggleAccordion('tv')">
+            ▶ TV Events
+        </div>
+        <div class="accordion-content" id="accordion-tv">
+    `;
+
+    if (activityLog.tv.length === 0) {
+        html += `<p>No TV activity recorded.</p>`;
+    } else {
+        activityLog.tv.forEach(e => {
+            html += `<p><strong>${e.action}</strong> at ${e.time.toLocaleTimeString()}</p>`;
+        });
+    }
+
+    html += `</div></div>`;
+
+    // --------------------------
+    // CLOSE BUTTON
+    // --------------------------
+    html += `<br><button onclick="closeReport()">Close</button>`;
+
+    // APPLY HTML TO PANEL
+    panel.innerHTML = html;
+    panel.style.display = "block";
+    controls.unlock(); // pause the game
+}
+
+window.toggleAccordion = function(name) {
+    const content = document.getElementById("accordion-" + name);
+    content.style.display = content.style.display === "block" ? "none" : "block";
+};
+
+window.closeReport = function() {
+    const panel = document.getElementById("report-panel");
+    panel.style.display = "none";
+    controls.lock(); // return to game
+};
+
+// -----------------------------------------------------------------------------
+// CREDITS MENU
+// -----------------------------------------------------------------------------
+function openCreditsMenu() {
+    controls.unlock();
+    const creditsBox = document.getElementById("credits");
+    const creditsContent = document.getElementById("credits-content");
+
+    // Set credits content
+    creditsContent.innerHTML = `
+        <div style="margin-bottom: 20px;">
+            <h3 style="color: #4fc3f7; margin-bottom: 8px;">3D Apartment Experience</h3>
+            <p style="font-size: 14px; color: #ccc;">An interactive smart home simulation</p>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <h4 style="color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">Development</h4>
+            <p style="margin: 5px 0;"><strong>Lead Developer:</strong> Rokas Laurinavičis</p>
+            <p style="margin: 5px 0;"><strong>Developer:</strong> Žamal Adomas Youssef</p>
+            <p style="margin: 5px 0;"><strong>UI/UX Design:</strong> Žamal Adomas Youssef</p>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <h4 style="color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">Assets & Resources</h4>
+            <p style="margin: 5px 0;"><strong>Apartment Model:</strong> Rokas Laurinavičius</p>
+            <p style="margin: 5px 0;"><strong>HDR Environment:</strong> Meadow 2 (4K)</p>
+            <p style="margin: 5px 0;"><strong>Assets:</strong> Kenney, Carniceer, Jean-Francois.Bonin, dook, Quaternius</p>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <h4 style="color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">Special Thanks</h4>
+            <p style="margin: 5px 0;">Three.js community</p>
+            <p style="margin: 5px 0;">Evelina Jaleniauskienė</p>
+        </div>
+    `;
+
+    // Show the credits box
+    creditsBox.style.display = "block";
+
+    // Handle close button
+    document.getElementById("close-credits").onclick = () => {
+        creditsBox.style.display = "none";
+        controls.lock();
+    };
+}
+
