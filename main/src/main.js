@@ -1205,13 +1205,15 @@ function openCreditsMenu() {
         <div style="margin-bottom: 20px;">
             <h4 style="color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">Assets & Resources</h4>
             <p style="margin: 5px 0;"><strong>Apartment Model:</strong> Rokas Laurinavičius</p>
-            <p style="margin: 5px 0;"><strong>HDR Environment:</strong> Meadow 2 (4K)</p>
-            <p style="margin: 5px 0;"><strong>Assets:</strong> Kenney, Carniceer, Jean-Francois.Bonin, dook, Quaternius</p>
+            <p style="margin: 5px 0;"><strong>HDR Environment:</strong> Sergej Majboroda https://polyhaven.com/</p>
+            <p style="margin: 5px 0;"><strong>Assets:</strong> Kenney, Carniceer, Jean-Francois.Bonin, dook, Quaternius https://poly.pizza/ https://sketchfab.com/</p>
+
         </div>
         
         <div style="margin-bottom: 20px;">
             <h4 style="color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">Special Thanks</h4>
             <p style="margin: 5px 0;">Three.js community</p>
+            <p style="margin: 5px 0;">Petr Mrnuštík</p>
             <p style="margin: 5px 0;">Evelina Jaleniauskienė</p>
         </div>
     `;
